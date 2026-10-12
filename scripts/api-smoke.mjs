@@ -1,0 +1,33 @@
+import assert from "node:assert/strict";
+const origin = process.argv[2] ?? "http://127.0.0.1:8080";
+const players = { alice: "", bob: "", stranger: "" };
+async function request(path, player, body, extra = {}) {
+  const res = await fetch(origin + path, { method: body ? "POST" : "GET", headers: { ...(players[player] ? { Cookie: players[player] } : {}), ...(body ? { "Content-Type": "application/json", Origin: origin } : {}), ...extra }, body: body ? JSON.stringify(body) : undefined });
+  const cookie = res.headers.get("set-cookie"); if (cookie) players[player] = cookie.split(";")[0];
+  return { status: res.status, data: await res.json() };
+}
+assert.equal((await fetch(origin + "/healthz")).status, 200);
+for (const p of Object.keys(players)) assert.equal((await request("/api/rooms", p)).status, 200);
+assert.equal(new Set(Object.values(players)).size, 3);
+const created = await request("/api/rooms", "alice", { name: "Алиса", mode: "standard" });
+assert.equal(created.status, 201); const path = `/api/rooms/${created.data.code}`;
+assert.equal((await request(path, "stranger")).status, 403);
+const joined = await request("/api/rooms", "bob", { name: "Борис", code: created.data.code }); assert.equal(joined.status, 200);
+assert.equal((await request(path, "bob", { expectedVersion: joined.data.version, action: { type: "start" } })).status, 403);
+assert.equal((await request(path, "alice", { expectedVersion: joined.data.version, action: { type: "start" } }, { Origin: "https://attacker.invalid" })).status, 403);
+const starts = await Promise.all([1, 2].map(() => request(path, "alice", { expectedVersion: joined.data.version, action: { type: "start" } })));
+assert.deepEqual(starts.map(r => r.status).sort(), [200, 409]);
+let room = starts.find(r => r.status === 200).data; assert.equal(room.board, null);
+assert.equal(room.expiresAt - created.data.expiresAt, 0);
+const mover = room.activeId === room.players[0].id ? "alice" : "bob", other = mover === "alice" ? "bob" : "alice";
+const observed = await request(path, mover, { expectedVersion: room.version, action: { type: "research", topic: 0 } }); assert.equal(observed.status, 200);
+const privateView = await request(path, other); assert.equal(privateView.data.me.history.length, 0);
+assert.ok(!JSON.stringify(privateView.data).includes(observed.data.me.history[0].text));
+const own = (await request(path, "alice")).data; own.me.notes[0][1] = 2;
+const saved = await request(path, "alice", { expectedVersion: own.version, action: { type: "notes", notes: own.me.notes, memo: "Приватный планшет" } }); assert.equal(saved.status, 200);
+assert.equal((await request(path, "alice")).data.me.memo, "Приватный планшет"); assert.equal((await request(path, "bob")).data.me.memo, "");
+assert.equal((await request(path, "alice", { expectedVersion: own.version, action: { type: "notes", notes: own.me.notes, memo: "stale" } })).status, 409);
+assert.equal((await request("/api/rooms", "stranger")).data.rooms.length, 0);
+assert.equal((await request("/api/rooms", "alice", { name: "a".repeat(20001) })).status, 413);
+assert.ok(!(await (await fetch(origin)).text()).includes("chatgpt"));
+console.log("API smoke passed: anonymous multiplayer, HTTP-only cookies, CAS, private notebooks, reconnect, CSRF, payload limits, 24-hour expiry metadata.");

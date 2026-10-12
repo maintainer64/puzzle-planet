@@ -1,0 +1,14 @@
+node_modules/
+dist/
+data/
+outputs/
+coverage/
+.idea/
+.DS_Store
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
+*.sqlite*
+*.db
+npm-debug.log*

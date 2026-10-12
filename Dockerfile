@@ -1,16 +1,16 @@
-FROM --platform=$BUILDPLATFORM node:24-bookworm-slim AS build
+FROM --platform=$BUILDPLATFORM node:26-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY . .
 RUN npm run typecheck && npm test && npm run build
 
-FROM --platform=$BUILDPLATFORM node:24-bookworm-slim AS production-deps
+FROM --platform=$BUILDPLATFORM node:26-bookworm-slim AS production-deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 
-FROM node:24-bookworm-slim AS runtime
+FROM node:26-bookworm-slim AS runtime
 LABEL org.opencontainers.image.title="Puzzle Planet" \
       org.opencontainers.image.source="https://github.com/maintainer64/puzzle-planet" \
       org.opencontainers.image.licenses="MIT"
